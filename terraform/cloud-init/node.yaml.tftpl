@@ -1,0 +1,39 @@
+#cloud-config
+# Rendered by templatefile() in servers.tf — ${role}/${zone} are filled in
+# by Terraform before the server ever sees this. Runs once on first boot.
+package_update: true
+
+write_files:
+  - path: /etc/ripple.env
+    content: |
+      ROLE=${role}
+      ZONE=${zone}
+      PORT=${port}
+      CONTROL_PLANE_WS=${control_plane_ws}
+      CONTROL_PLANE_WS_ALT=${control_plane_ws_alt}
+
+  - path: /etc/systemd/system/ripple.service
+    content: |
+      [Unit]
+      Description=Ripple ${role}
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      EnvironmentFile=/etc/ripple.env
+      WorkingDirectory=/opt/ripple/${role}
+      ExecStart=/usr/bin/node ${entry}
+      Restart=always
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  - apt-get install -y nodejs
+  - mkdir -p /opt/ripple/${role}
+  - systemctl daemon-reload
+  # Enabled but not started — there's no code yet. deploy.sh rsyncs the app
+  # and runs `systemctl restart ripple`.
+  - systemctl enable ripple

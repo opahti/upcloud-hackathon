@@ -1,0 +1,8 @@
+node_modules/
+flags.json
+
+# Terraform — state can contain secrets, tfvars is personal config
+terraform/.terraform/
+terraform/terraform.tfstate*
+terraform/terraform.tfvars
+terraform/.terraform.lock.hcl

@@ -1,0 +1,11 @@
+{
+  "name": "ripple-edge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node edge.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
