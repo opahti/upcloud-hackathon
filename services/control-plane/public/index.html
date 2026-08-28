@@ -13,11 +13,20 @@
                --accent:#6d3fd8; --ok:#0e7d70; --warn:#a3550a; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font-family:ui-sans-serif, system-ui, sans-serif; overflow:hidden; }
-  .layout { display:grid; grid-template-columns:300px 1fr; height:100vh; }
-  aside { background:var(--panel); border-right:1px solid var(--line); padding:1.1rem; overflow-y:auto; }
+  .layout { display:grid; grid-template-columns:280px 1fr 290px; height:100vh; }
+  aside { background:var(--panel); padding:1.1rem; overflow-y:auto; }
+  aside.left { border-right:1px solid var(--line); }
+  aside.right { border-left:1px solid var(--line); }
   h1 { font-size:1.05rem; margin:0 0 1rem; letter-spacing:.04em; }
   h1 span { color:var(--accent); }
   h2 { font-size:.7rem; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); margin:1.4rem 0 .5rem; }
+  .tools { display:flex; gap:.5rem; margin-bottom:.9rem; }
+  .tools button { flex:1; background:var(--card); border:1px solid var(--line); color:var(--text);
+                  border-radius:6px; padding:.4rem; cursor:pointer; font-size:.78rem; }
+  .tools button:hover { border-color:var(--accent); }
+  .arc-ctl { margin-bottom:.9rem; font-size:.72rem; color:var(--dim); }
+  .arc-ctl b { color:var(--accent); }
+  .arc-ctl input[type=range] { width:100%; accent-color:var(--accent); margin-top:.15rem; }
 
   .flag { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:.7rem .8rem; margin-bottom:.7rem; }
   .flag .row { display:flex; justify-content:space-between; align-items:center; gap:.5rem; }
@@ -32,6 +41,10 @@
   .zr-top { display:flex; justify-content:space-between; align-items:baseline; }
   /* per-zone flag chips: what THIS edge has acked (letter = flag initial).
      filled = active here, outline = off, amber = ack not yet received */
+  .zr-bottom { display:flex; justify-content:space-between; align-items:center; }
+  .ip { font-size:.66rem; color:var(--dim); cursor:pointer; margin-top:.25rem; }
+  .ip:hover { color:var(--accent); }
+  .ip.copied { color:var(--ok); }
   .fchips { display:flex; gap:3px; margin:.25rem 0 0 1rem; }
   .fchip { width:13px; height:13px; border-radius:3px; border:1px solid var(--line); color:var(--dim);
            font:600 8px/12px ui-monospace, monospace; text-align:center; }
@@ -58,17 +71,27 @@
 </head>
 <body>
 <div class="layout">
-  <aside>
+  <aside class="left">
     <h1>ripple <span>/ wall</span></h1>
+    <div class="tools">
+      <button id="pingBtn" title="re-broadcast a flag unchanged — every region acks, arcs fire, nothing changes">✦ ping planet</button>
+      <button id="soundBtn" title="one blip per region as its ack lands — pitch drops with distance">🔇 sound</button>
+    </div>
+    <div class="arc-ctl" title="arc animation speed: ×1 shows the real measured round-trip time">
+      <label>arc slow-mo <b id="arcVal">×4</b></label>
+      <input type="range" id="arcSlider" min="1" max="20" step="1" value="4">
+    </div>
     <div id="flags"></div>
-    <h2>edges</h2>
-    <div id="zones"></div>
   </aside>
   <div class="stage">
     <div id="banner">scheduled maintenance in progress — some features may be unavailable</div>
     <canvas id="globe"></canvas>
-    <div class="hint">drag to rotate</div>
+    <div class="hint">drag to rotate · scroll to zoom</div>
   </div>
+  <aside class="right">
+    <h2>edges</h2>
+    <div id="zones"></div>
+  </aside>
 </div>
 
 <script>
@@ -101,7 +124,7 @@ ws.onmessage = (ev) => {
   if (msg.type === 'snapshot') {
     controlZone = msg.controlZone ?? 'local';
     msg.flags.forEach((f) => cpFlags.set(f.name, f));
-    msg.edges.forEach((e) => { const z = touchZone(e.zone); z.online = true; z.transport = e.transport; });
+    msg.edges.forEach((e) => { const z = touchZone(e.zone); z.online = true; z.transport = e.transport; z.ips = e.ips; });
     for (const z of zones.values()) msg.flags.forEach((f) => z.flags.set(f.name, f));
     renderPanel();
   }
@@ -110,7 +133,7 @@ ws.onmessage = (ev) => {
 
   if (msg.type === 'edges') {
     const online = new Set(msg.edges.map((e) => e.zone));
-    msg.edges.forEach((e) => { const z = touchZone(e.zone); z.online = true; z.transport = e.transport; });
+    msg.edges.forEach((e) => { const z = touchZone(e.zone); z.online = true; z.transport = e.transport; z.ips = e.ips; });
     for (const [name, z] of zones) z.online = online.has(name);
     renderPanel();
   }
@@ -119,11 +142,13 @@ ws.onmessage = (ev) => {
     const z = touchZone(msg.zone);
     z.ms = msg.ms;
     z.flags.set(msg.flag.name, msg.flag);
-    // The visual: an arc from the control zone that lands after a duration
-    // scaled to the real measured ms (clamped so tiny/huge values still read).
+    blip(msg.ms);
+    // The visual: an arc from the control zone that lands after the real
+    // measured ms × the slow-mo factor (×1 = real time; a short floor keeps
+    // even a 5 ms arc on screen for a couple of frames).
     arcs.push({
       from: coords(controlZone), to: coords(msg.zone),
-      start: performance.now(), dur: clamp(msg.ms * 4, 350, 1600),
+      start: performance.now(), dur: clamp(msg.ms * arcSlowmo, 60, 2200),
       ms: msg.ms, zone: msg.zone, done: false,
     });
     renderPanel();
@@ -176,7 +201,9 @@ function renderPanel() {
       <div class="meta">rollout ${f.rollout}% · v${f.version}</div>
     </div>`).join('');
 
-  document.getElementById('zones').innerHTML = [...zones.entries()].sort().map(([name, z]) => {
+  document.getElementById('zones').innerHTML = [...zones.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([name, z]) => {
     // One chip per flag, in flag-list order, evaluated from what THIS edge
     // has acked — with the zone as the rollout unit, so a 50% slider claims
     // ~half the planet. A chip goes amber while the edge's copy is an older
@@ -194,7 +221,10 @@ function renderPanel() {
         <span><span class="dot"></span>${name}${name === controlZone ? ' ★' : ''}${z.transport ? `<span class="via ${z.transport}">${z.transport === 'sdn' ? 'sdn' : 'pub'}</span>` : ''}</span>
         <span class="ms">${z.ms != null ? `${z.ms}<small> ms</small>` : '—'}</span>
       </div>
-      <div class="fchips">${chips}</div>
+      <div class="zr-bottom">
+        <div class="fchips">${chips}</div>
+        ${z.ips?.public ? `<code class="ip" data-ip="${z.ips.public}" title="click to copy${z.ips.private ? ` · private ${z.ips.private}` : ''}">${z.ips.public}</code>` : ''}
+      </div>
     </div>`;
   }).join('');
 }
@@ -211,6 +241,7 @@ fetch('/land.json').then((r) => r.json()).then((d) => { landDots = d; });
 
 let spin = -1.83;         // longitude rotation, radians; starts over Europe (control zone), advances each frame
 let tilt = 0.35;          // camera tilt, slightly from the north
+let zoom = 1;             // scroll wheel, clamped below
 let dragging = null;
 const arcs = [];          // in-flight + fading propagation arcs
 const pulses = [];        // expanding rings where an arc has landed
@@ -218,10 +249,17 @@ const pulses = [];        // expanding rings where an arc has landed
 canvas.addEventListener('pointerdown', (e) => { dragging = { x: e.clientX, y: e.clientY, spin, tilt }; });
 window.addEventListener('pointermove', (e) => {
   if (!dragging) return;
-  spin = dragging.spin + (e.clientX - dragging.x) * 0.005;
-  tilt = clamp(dragging.tilt - (e.clientY - dragging.y) * 0.005, -1.3, 1.3);
+  // divide by zoom so a screen-pixel of drag moves the same amount of
+  // *globe* regardless of zoom level
+  spin = dragging.spin + (e.clientX - dragging.x) * 0.005 / zoom;
+  tilt = clamp(dragging.tilt + (e.clientY - dragging.y) * 0.005 / zoom, -1.3, 1.3);
 });
 window.addEventListener('pointerup', () => { dragging = null; });
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  // exp keeps zoom steps proportional — equal scroll = equal zoom ratio
+  zoom = clamp(zoom * Math.exp(-e.deltaY * 0.0012), 0.55, 3.5);
+}, { passive: false });
 
 const D2R = Math.PI / 180;
 function toVec(lat, lon) {
@@ -256,30 +294,46 @@ function frame(now) {
   ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.38;
-  const party = cpFlags.get('party_mode')?.enabled;
-  const dark = cpFlags.get('dark_mode')?.enabled !== false;
-  const labelsOn = cpFlags.get('show_labels')?.enabled !== false;
-  const hue = party ? (now / 12) % 360 : 262; // party mode cycles the planet's hue
-  if (!dragging) spin += cpFlags.get('turbo_spin')?.enabled ? 0.012 : 0.0012;
+  const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.38 * zoom;
+  const dark = cpFlags.get('dark_mode')?.enabled !== false; // page theme: wall-global by design
 
-  // sphere body + rim (palette follows the dark_mode flag)
+  // Per-zone flag evaluation from EDGE-ACKED state, zone as the rollout
+  // unit — globe effects appear only where that edge has confirmed the flag.
+  const zoneOn = (z, flagName, zoneName) => { const f = z.flags.get(flagName); return !!f && evaluate(f, zoneName); };
+  const online = [...zones.entries()].filter(([, z]) => z.online);
+  const frac = (flagName) => online.length
+    ? online.filter(([n, z]) => zoneOn(z, flagName, n)).length / online.length
+    : (cpFlags.get(flagName)?.enabled ? 1 : 0); // no edges (local dev): fall back to control-plane state
+
+  // Planet-wide hue cycles only when EVERY online zone has party acked —
+  // partial rollouts party per-marker instead (see the marker loop).
+  const hue = frac('party_mode') === 1 ? (now / 12) % 360 : 262;
+  // Rotation accelerates with the fraction of zones where turbo_spin is live.
+  if (!dragging) spin += 0.0012 + 0.011 * frac('turbo_spin');
+
+  // sphere body + rim (palette follows the dark_mode flag).
+  // A soft halo behind the disc keeps the globe readable against the page
+  // background — without it the dark sphere melts into the dark page.
+  ctx.save();
+  ctx.shadowColor = dark ? `hsl(${hue} 70% 55% / .45)` : `hsl(${hue} 60% 40% / .3)`;
+  ctx.shadowBlur = R * 0.12;
   const g = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R);
-  g.addColorStop(0, dark ? `hsl(${hue} 35% 16%)` : `hsl(${hue} 45% 90%)`);
-  g.addColorStop(1, dark ? `hsl(${hue} 45% 8%)` : `hsl(${hue} 35% 74%)`);
+  g.addColorStop(0, dark ? `hsl(${hue} 35% 26%)` : `hsl(${hue} 45% 92%)`);
+  g.addColorStop(1, dark ? `hsl(${hue} 40% 14%)` : `hsl(${hue} 35% 76%)`);
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
-  ctx.strokeStyle = dark ? `hsl(${hue} 60% 45% / .35)` : `hsl(${hue} 50% 40% / .4)`;
+  ctx.restore();
+  ctx.strokeStyle = dark ? `hsl(${hue} 65% 55% / .55)` : `hsl(${hue} 50% 40% / .4)`;
   ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
 
   // land dots (depth-faded)
-  ctx.fillStyle = dark ? `hsl(${hue} 45% 62%)` : `hsl(${hue} 55% 34%)`;
+  ctx.fillStyle = dark ? `hsl(${hue} 55% 74%)` : `hsl(${hue} 60% 28%)`;
   for (const [lon, lat] of landDots) {
     const p = project(toVec(lat, lon), cx, cy, R);
     if (p.z <= 0.02) continue;
-    ctx.globalAlpha = 0.16 + p.z * 0.5;
-    ctx.fillRect(p.sx - 1, p.sy - 1, 2, 2);
+    ctx.globalAlpha = 0.35 + p.z * 0.55;
+    ctx.fillRect(p.sx - 1, p.sy - 1, 2.2, 2.2);
   }
   ctx.globalAlpha = 1;
 
@@ -332,33 +386,133 @@ function frame(now) {
   }
   for (let i = pulses.length - 1; i >= 0; i--) if (pulses[i].dead) pulses.splice(i, 1);
 
-  // zone markers + labels
+  // zone markers + labels — every effect here reads EDGE-ACKED state, so
+  // a marker only changes once its edge has confirmed the flag version
   ctx.font = '600 11px ui-sans-serif, system-ui';
+  const drawLabel = (name, p, text = null) => {
+    ctx.fillStyle = dark ? `rgba(236,233,241,${0.4 + p.z * 0.6})` : `rgba(33,29,41,${0.4 + p.z * 0.6})`;
+    // A "?" marks a zone missing from ZONE_COORDS (parked at a fallback
+    // spot) — so a misplaced marker is a visible bug, not a mystery.
+    ctx.fillText(text ?? (ZONE_COORDS[name] ? name : name + ' ?'), p.sx + 7, p.sy + 4);
+  };
   for (const [name, z] of zones) {
     const p = project(toVec(...coords(name)), cx, cy, R);
     if (p.z <= 0) continue;
-    const isControl = name === controlZone;
-    ctx.fillStyle = z.online ? (isControl ? '#e0a24a' : (dark ? '#3fbca9' : '#0e7d70')) : '#9a93a8';
-    ctx.beginPath(); ctx.arc(p.sx, p.sy, isControl ? 4.5 : 3.5, 0, 7); ctx.fill();
+    const partyHere = zoneOn(z, 'party_mode', name);
+    const maintHere = zoneOn(z, 'maintenance_banner', name);
+
+    // marker fill: party cycles its own color, maintenance blinks amber,
+    // otherwise the usual online/offline colors
+    if (partyHere) ctx.fillStyle = `hsl(${(now / 6 + p.sx * 2) % 360} 85% 60%)`;
+    else if (maintHere) ctx.fillStyle = `hsl(38 85% 55% / ${0.55 + 0.45 * Math.sin(now / 250)})`;
+    else ctx.fillStyle = z.online ? (dark ? '#3fbca9' : '#0e7d70') : '#9a93a8';
+    ctx.beginPath(); ctx.arc(p.sx, p.sy, 3.5, 0, 7); ctx.fill();
+
+    // pulsing rainbow ring where party is live
+    if (partyHere) {
+      ctx.strokeStyle = `hsl(${(now / 4) % 360} 90% 65%)`;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, 6.5 + Math.sin(now / 160) * 1.5, 0, 7); ctx.stroke();
+    }
     // amber ring while this edge holds an older flag version than the
     // control plane — the visible "change in flight" state
     const stale = z.online && [...cpFlags.values()].some((cf) => z.flags.get(cf.name)?.version !== cf.version);
     if (stale) {
       ctx.strokeStyle = '#e0a24a';
       ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(p.sx, p.sy, 7, 0, 7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, 9, 0, 7); ctx.stroke();
     }
-    if (labelsOn) {
-      ctx.fillStyle = dark ? `rgba(236,233,241,${0.4 + p.z * 0.6})` : `rgba(33,29,41,${0.4 + p.z * 0.6})`;
-      // A "?" marks a zone missing from ZONE_COORDS (parked at a fallback
-      // spot) — so a misplaced marker is a visible bug, not a mystery.
-      ctx.fillText(ZONE_COORDS[name] ? name : name + ' ?', p.sx + 7, p.sy + 4);
+    // per-zone label: only where THIS edge has show_labels active — a 50%
+    // rollout labels half the planet
+    if (zoneOn(z, 'show_labels', name)) drawLabel(name, p);
+  }
+
+  // the control zone runs no edge, so it gets its own marker (arcs
+  // shouldn't fly out of empty ocean); its label follows control-plane state
+  if (!zones.has(controlZone)) {
+    const p = project(toVec(...coords(controlZone)), cx, cy, R);
+    if (p.z > 0) {
+      ctx.fillStyle = '#e0a24a';
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, 4.5, 0, 7); ctx.fill();
+      if (cpFlags.get('show_labels')?.enabled !== false) drawLabel(controlZone, p, controlZone + ' ★');
     }
   }
 
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// Arc slow-mo factor: ×1 = arcs travel in the real measured round-trip time.
+// A view preference, not a flag — remembered per browser.
+let arcSlowmo = 4;
+try { arcSlowmo = clamp(Number(localStorage.getItem('arcSlowmo')) || 4, 1, 20); } catch {}
+const arcSlider = document.getElementById('arcSlider');
+arcSlider.value = arcSlowmo;
+document.getElementById('arcVal').textContent = arcSlowmo === 1 ? '×1 (real time)' : `×${arcSlowmo}`;
+arcSlider.oninput = () => {
+  arcSlowmo = Number(arcSlider.value);
+  document.getElementById('arcVal').textContent = arcSlowmo === 1 ? '×1 (real time)' : `×${arcSlowmo}`;
+  try { localStorage.setItem('arcSlowmo', String(arcSlowmo)); } catch {}
+};
+
+// Click-to-copy for edge IPs. navigator.clipboard needs a secure context and
+// this page is served over plain http, so fall back to the textarea trick.
+function copyText(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  ta.remove();
+  return Promise.resolve();
+}
+
+document.getElementById('zones').addEventListener('click', (e) => {
+  const el = e.target.closest('.ip');
+  if (!el) return;
+  copyText(el.dataset.ip).then(() => {
+    el.classList.add('copied');
+    el.textContent = 'copied!';
+    setTimeout(() => { el.textContent = el.dataset.ip; el.classList.remove('copied'); }, 900);
+  });
+});
+
+// ===========================================================================
+// Party tricks
+// ===========================================================================
+// "Ping planet": re-PUT a flag with its current value. The version still
+// bumps, so every edge acks — arcs fire across the globe, nothing changes.
+document.getElementById('pingBtn').onclick = () => {
+  const f = cpFlags.get('show_labels') ?? [...cpFlags.values()][0];
+  if (f) setFlag(f.name, { enabled: f.enabled });
+};
+
+// Sound: one blip per ack, pitched by distance (near = high, far = low).
+// The temporal spread is real — the blips arrive when the acks do, so the
+// audience hears round-trip latency. Off by default; the toggle click also
+// satisfies the browser's user-gesture requirement for audio.
+let audioCtx = null, soundOn = false;
+document.getElementById('soundBtn').onclick = (e) => {
+  soundOn = !soundOn;
+  if (soundOn && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  e.target.textContent = soundOn ? '🔊 sound' : '🔇 sound';
+};
+
+function blip(ms) {
+  if (!soundOn || !audioCtx) return;
+  const t = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type = 'sine';
+  o.frequency.value = clamp(880 - ms * 1.6, 200, 880);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.14, t + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(t);
+  o.stop(t + 0.3);
+}
 </script>
 </body>
 </html>

@@ -81,7 +81,7 @@ function broadcast(sockets, msg) {
 }
 
 function edgeList() {
-  return [...edgeSockets.values()].map((e) => ({ zone: e.zone, connectedAt: e.connectedAt, transport: e.transport }));
+  return [...edgeSockets.values()].map((e) => ({ zone: e.zone, connectedAt: e.connectedAt, transport: e.transport, ips: e.ips }));
 }
 
 const wssEdge = new WebSocketServer({ noServer: true });
@@ -95,7 +95,7 @@ wssEdge.on('connection', (ws) => {
     if (msg.type === 'hello') {
       // Private SDN addresses live in 10.x; anything else came over the internet.
       const transport = /\/\/10\./.test(msg.via ?? '') ? 'sdn' : 'public';
-      edgeSockets.set(ws, { zone: msg.zone, connectedAt: new Date().toISOString(), transport });
+      edgeSockets.set(ws, { zone: msg.zone, connectedAt: new Date().toISOString(), transport, ips: msg.ips ?? {} });
       ws.send(JSON.stringify({ type: 'snapshot', flags: [...flags.values()] }));
       broadcast(wallSockets, { type: 'edges', edges: edgeList() });
       console.log(`edge connected: ${msg.zone}`);

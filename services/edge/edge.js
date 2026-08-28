@@ -4,6 +4,7 @@
 // That's the resilience finale of the demo.
 
 import http from 'node:http';
+import os from 'node:os';
 import WebSocket from 'ws';
 
 const ZONE = process.env.ZONE || 'local';
@@ -30,7 +31,8 @@ function connect() {
     console.log(`[${ZONE}] connected to ${url}`);
     // `via` tells the control plane which path we came in on, so the wall
     // can label this edge sdn (private peering) vs public internet.
-    ws.send(JSON.stringify({ type: 'hello', zone: ZONE, via: url }));
+    // `ips` are our own addresses, shown on the wall for ssh/curl access.
+    ws.send(JSON.stringify({ type: 'hello', zone: ZONE, via: url, ips: myIps() }));
   });
 
   ws.on('message', (raw) => {
@@ -60,6 +62,20 @@ function connect() {
     urlIndex += 1; // rotate to the fallback URL
     setTimeout(connect, 2000);
   }
+}
+
+// Our own IPv4 addresses: UpCloud's private SDN range is 10.x, everything
+// else non-internal is the public interface.
+function myIps() {
+  const ips = {};
+  for (const iface of Object.values(os.networkInterfaces())) {
+    for (const addr of iface ?? []) {
+      if (addr.family !== 'IPv4' || addr.internal) continue;
+      if (addr.address.startsWith('10.')) ips.private ??= addr.address;
+      else ips.public ??= addr.address;
+    }
+  }
+  return ips;
 }
 
 // ---------------------------------------------------------------------------
