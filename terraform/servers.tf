@@ -1,10 +1,10 @@
 # ============================================================================
 # SERVERS — one control plane + one edge per zone in var.edge_zones.
 #
-# Both use cloud-init (the user_data field) for first-boot setup: install
-# Node, write /etc/ripple.env, register a systemd unit. Application CODE is
-# NOT baked in — ../deploy.sh rsyncs it after apply. That split keeps the
-# infra layer stable while you iterate on code all weekend.
+# Both use cloud-init (user_data) for first-boot setup: install Node.js,
+# write /etc/ripple.env, register a systemd unit. Application code is not
+# baked into the image — ../deploy.sh rsyncs it after apply — keeping the
+# infrastructure layer independent of application releases.
 # ============================================================================
 
 resource "upcloud_server" "control" {
@@ -14,12 +14,12 @@ resource "upcloud_server" "control" {
   metadata = true # required for cloud-init user_data to be served
 
   template {
-    storage = "Ubuntu Server 24.04 LTS (Noble Numbat)" # template by name
-    size    = 25                                       # GB, matches the plan
+    storage = "Ubuntu Server 24.04 LTS (Noble Numbat)"
+    size    = 25 # GB, matches the plan
   }
 
   # Interface order matters: index 0 = public, index 1 = private.
-  # outputs.tf and edge user_data rely on that ordering.
+  # outputs.tf and the edge user_data rely on that ordering.
   network_interface {
     type = "public"
   }
@@ -29,24 +29,23 @@ resource "upcloud_server" "control" {
   }
 
   login {
-    user            = "root" # hackathon-pragmatic; use a sudo user + firewall rules for anything real
+    user            = "root" # simplification for this project; production setups should use a sudo user and firewall rules
     keys            = [var.ssh_public_key]
     create_password = false
   }
 
-  # templatefile() renders cloud-init/node.yaml.tftpl with these variables.
   user_data = templatefile("${path.module}/cloud-init/node.yaml.tftpl", {
     role                 = "control-plane"
     entry                = "server.js"
     zone                 = var.control_zone
     port                 = 4000
-    control_plane_ws     = "" # the control plane doesn't dial anyone
+    control_plane_ws     = "" # the control plane makes no outbound connections
     control_plane_ws_alt = ""
   })
 }
 
 resource "upcloud_server" "edge" {
-  for_each = toset(var.edge_zones) # one server per zone; for_each needs a set/map
+  for_each = toset(var.edge_zones)
 
   hostname = "ripple-edge-${each.key}"
   zone     = each.key
@@ -72,9 +71,9 @@ resource "upcloud_server" "edge" {
     create_password = false
   }
 
-  # Edges dial the control plane over the PRIVATE address first (cross-zone
-  # traffic rides UpCloud's backbone via the shared router — that's the SDN
-  # story in your pitch), and fall back to the public IP if that path is down.
+  # Edges dial the control plane's private address first (cross-zone traffic
+  # stays on UpCloud's private backbone where a peering exists) and fall
+  # back to the public address if the private path is unavailable.
   user_data = templatefile("${path.module}/cloud-init/node.yaml.tftpl", {
     role                 = "edge"
     entry                = "edge.js"
@@ -85,21 +84,19 @@ resource "upcloud_server" "edge" {
   })
 }
 
-# ----------------------------------------------------------------------------
-# Day-2 upgrade: Managed PostgreSQL for flag persistence.
-# `count` is the older cousin of for_each — here it's a conditional:
-# 1 copy if enabled, 0 if not. Flip enable_postgres = true in tfvars,
-# `terraform apply`, and wire DATABASE_URL into the control plane.
-# ----------------------------------------------------------------------------
+# Optional Managed PostgreSQL for durable flag persistence. Disabled by
+# default; the control plane runs file-backed without it. Enable with
+# enable_postgres = true and wire the service URI into the control plane
+# as DATABASE_URL.
 resource "upcloud_managed_database_postgresql" "flags" {
   count = var.enable_postgres ? 1 : 0
 
   name  = "ripple-flags"
   title = "ripple flag store"
   zone  = var.control_zone
-  plan  = "1x1xCPU-2GB-25GB" # smallest plan
+  plan  = "1x1xCPU-2GB-25GB" # smallest available plan
 
   properties {
-    public_access = true # fine for a hackathon; private-network attach is the polished version
+    public_access = true # simplification; production setups should attach to the private network instead
   }
 }

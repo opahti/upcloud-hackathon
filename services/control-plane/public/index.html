@@ -7,8 +7,7 @@
 <style>
   :root { --bg:#0d0b12; --panel:#16131e; --card:#1f1c28; --line:#332e40; --text:#ece9f1; --dim:#9a93a8;
           --accent:#a98bf2; --ok:#3fbca9; --warn:#e0a24a; }
-  /* the dark_mode flag drives the wall's own theme — flags controlling the
-     dashboard you're watching is part of the demo */
+  /* the dark_mode flag drives the dashboard's own theme */
   body.light { --bg:#f2f0f6; --panel:#faf9fc; --card:#ffffff; --line:#ddd6e8; --text:#211d29; --dim:#6e6879;
                --accent:#6d3fd8; --ok:#0e7d70; --warn:#a3550a; }
   * { box-sizing:border-box; }
@@ -479,7 +478,7 @@ document.getElementById('zones').addEventListener('click', (e) => {
 });
 
 // ===========================================================================
-// Party tricks
+// Interactive extras
 // ===========================================================================
 // "Ping planet": re-PUT a flag with its current value. The version still
 // bumps, so every edge acks — arcs fire across the globe, nothing changes.
@@ -489,9 +488,9 @@ document.getElementById('pingBtn').onclick = () => {
 };
 
 // Sound: one blip per ack, pitched by distance (near = high, far = low).
-// The temporal spread is real — the blips arrive when the acks do, so the
-// audience hears round-trip latency. Off by default; the toggle click also
-// satisfies the browser's user-gesture requirement for audio.
+// The temporal spread is real — blips play when acknowledgments arrive, so
+// the spacing between tones is round-trip latency. Off by default; the
+// toggle click also satisfies the browser's user-gesture requirement.
 let audioCtx = null, soundOn = false;
 document.getElementById('soundBtn').onclick = (e) => {
   soundOn = !soundOn;

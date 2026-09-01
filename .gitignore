@@ -4,7 +4,7 @@ flags.json
 # Terraform — state can contain secrets, tfvars is personal config
 .env
 terraform/.env
-terraform/.terraform/
-terraform/terraform.tfstate*
+**/.terraform/
+**/terraform.tfstate*
 terraform/terraform.tfvars
 terraform/.terraform.lock.hcl

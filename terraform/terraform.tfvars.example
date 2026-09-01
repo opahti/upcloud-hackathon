@@ -1,10 +1,7 @@
-# Copy me:  cp terraform.tfvars.example terraform.tfvars
-# terraform.tfvars is gitignored — it's YOUR settings, not the team's.
+# Copy to terraform.tfvars (gitignored) and fill in your own values.
 
 ssh_public_key = "ssh-ed25519 AAAA... you@laptop"
 
-# Start small while learning (each apply/destroy cycle is faster and cheaper),
-# then widen to all continents for the real demo.
 edge_zones = ["de-fra1", "uk-lon1", "us-nyc1", "sg-sin1"]
 
 # control_zone    = "fi-hel1"

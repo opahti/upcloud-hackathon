@@ -1,7 +1,6 @@
 // Ripple edge node: holds the full flag set in memory, subscribed to the
-// control plane over WebSocket. Local reads never leave this process — and
-// keep working if the control plane dies (status just flips to "stale").
-// That's the resilience finale of the demo.
+// control plane over WebSocket. Local reads never leave this process and
+// keep working if the control plane is unreachable (status flips to "stale").
 
 import http from 'node:http';
 import os from 'node:os';

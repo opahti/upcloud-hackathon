@@ -18,14 +18,14 @@ const DIR = path.dirname(fileURLToPath(import.meta.url));
 const STATE_FILE = path.join(DIR, 'flags.json');
 
 // ---------------------------------------------------------------------------
-// Flag store. File-backed for now; swapping persist()/load() for Managed
-// PostgreSQL is the enable_postgres day-2 task.
+// Flag store. File-backed; persist()/load() are the seam for swapping in
+// Managed PostgreSQL (see enable_postgres in the Terraform config).
 // ---------------------------------------------------------------------------
 const flags = new Map(); // name -> { name, enabled, rollout, version, updatedAt }
 
 // Seeds are merged on every boot: existing flags keep their state, missing
-// ones get created — so adding a seed here shows up on a redeploy without
-// wiping the demo's flag history.
+// ones get created — a new seed appears on redeploy without discarding
+// existing flag state.
 const SEED_FLAGS = {
   // product-style flags (what a real team would gate)
   new_checkout: { enabled: true, rollout: 25 },

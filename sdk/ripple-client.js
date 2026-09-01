@@ -1,6 +1,6 @@
-// The deliberately tiny Ripple SDK. An app points it at its NEAREST edge
-// node and reads flags locally. Keep it this small — the wall is the
-// product; SDK scope creep is where the weekend goes to die.
+// Minimal Ripple client. An application points it at its nearest edge node
+// and reads flags locally, with short-lived caching and last-known-value
+// fallback.
 //
 //   import { RippleClient } from './ripple-client.js';
 //   const flags = new RippleClient('http://<edge-ip>:4100', { unit: userId });
